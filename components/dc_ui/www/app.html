@@ -2572,6 +2572,24 @@ svg.icon{ width: 20px; height: 20px; fill: none; stroke: currentColor;
     if(desc) desc.innerHTML = bedFollow
       ? '<strong>Automatic mode:</strong> the chamber follows the printer’s bed — while a print runs it heats to the <strong>Chamber target</strong> once the bed setpoint reaches the <strong>Bed threshold</strong> below. Your printer reports no filament type, so set the bed→chamber rule here.'
       : '<strong>Automatic mode:</strong> while a print runs, the chamber follows the loaded filament’s profile — set the per-filament targets in <strong>Filament Zones</strong> on the dashboard. With no print, or a filament that has no zone set, the chamber stays idle. Requires a connected printer (Klipper or Bambu).';
+    var actBtn = $('a-action');
+    // The dragonbreath-klipper extension is itself an active chamber controller, so
+    // AUTO can't run alongside it. Make that visible: block arming and say why. If
+    // AUTO is somehow already armed when the helper appears, keep Disengage so the
+    // user can still clear it, and show the paused reason.
+    if(s.environment.klipper_helper_present){
+      if(armed){
+        setAction('a-action', 'Disengage', '#i-square', true);
+        if(actBtn) actBtn.disabled = false;
+        setStatus('a-status', 'AUTO paused — the dragonbreath-klipper extension is controlling the chamber.', 'is-warn');
+      } else {
+        setAction('a-action', 'AUTO unavailable', '#i-refresh', false);
+        if(actBtn) actBtn.disabled = true;
+        setStatus('a-status', 'AUTO is off — the dragonbreath-klipper extension is controlling the chamber. Remove its [dragonbreath] config to use AUTO.', 'is-warn');
+      }
+      return;
+    }
+    if(actBtn) actBtn.disabled = false;
     setAction('a-action', armed?'Disengage':(bedFollow?'Follow the printer bed':'Follow filament profile'),
               armed?'#i-square':'#i-refresh', armed);
     var mat = s.environment.material;
