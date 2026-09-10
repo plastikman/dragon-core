@@ -297,7 +297,11 @@ static void merge_status_object(cJSON *status)
     // NULL) -> db_present stays false and consumers ignore it. Fields are a delta
     // like every other object, so only overwrite what's present.
     cJSON *db = cJSON_GetObjectItemCaseSensitive(status, "dragonbreath");
-    if (cJSON_IsObject(db)) {
+    // Moonraker returns an EMPTY object ("dragonbreath": {}) when the object was
+    // subscribed/queried but no longer exists (the [dragonbreath] helper was
+    // removed) — it doesn't omit the key. So require a NON-EMPTY object; otherwise
+    // presence latches true on the empty placeholder and never clears.
+    if (cJSON_IsObject(db) && cJSON_GetArraySize(db) > 0) {
         s_status.db_present = true;
         cJSON *v;
         if ((v = cJSON_GetObjectItemCaseSensitive(db, "device_target")) && cJSON_IsNumber(v))
@@ -349,6 +353,14 @@ static void handle_frame(const char *json, size_t len)
         cJSON *status = cJSON_GetObjectItemCaseSensitive(result, "status");
         if (cJSON_IsObject(status)) {
             xSemaphoreTake(s_lock, portMAX_DELAY);
+            // The subscribe RESULT is the authoritative full state (unlike a delta
+            // notify_status_update, which omits unchanged objects). Clear the
+            // presence-latched flag first so an object that has since disappeared —
+            // e.g. the [dragonbreath] helper was removed and Klippy restarted, which
+            // triggers a re-subscribe here — correctly clears instead of latching
+            // true forever. Deltas keep it, since they can't distinguish "gone" from
+            // "unchanged".
+            s_status.db_present = false;
             merge_status_object(status);
             s_status.state = DC_MK_SUBSCRIBED;
             s_last_rx_us = esp_timer_get_time();
