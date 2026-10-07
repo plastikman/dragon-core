@@ -434,17 +434,25 @@ static void no_ip_watch_stop(void)
 // only a bounded number of times and then latches BIT_FAILED — a signal that is
 // only consumed at boot, so a drop after long idle would otherwise never recover
 // (the device stays locally usable but off-network). This timer re-attempts the
-// saved SSID forever whenever we are configured as a station, not currently
-// connected, and not hosting the setup portal. It never disturbs AP_PORTAL
-// (provisioning) or a healthy connection, and clears the reactive retry budget so
-// each tick gets a fresh burst of attempts.
+// saved SSID forever whenever we are configured as a station and not currently
+// connected, and clears the reactive retry budget so each tick gets a fresh burst
+// of attempts.
+//
+// It retries from AP_PORTAL too: a device that boots/reboots while the WiFi is down
+// fails its boot-time STA attempt and falls to the setup portal with valid saved
+// creds, where it would otherwise stay stranded on its own AP until a manual reboot.
+// Retrying from the portal climbs it back onto the home network the moment WiFi
+// returns. This never disrupts provisioning: a user entering new creds just sees the
+// old ones fail harmlessly (we stay in the portal for them to finish), and we skip
+// any tick while a portal scan is in flight so esp_wifi_connect() can't abort it.
 static void reconnect_tick(void *arg)
 {
     (void)arg;
     if (s_state == DC_WIFI_STATE_STA_CONNECTED) return;   // already up
-    if (s_state == DC_WIFI_STATE_AP_PORTAL) return;       // provisioning / AP mode — leave it
     if (s_sta_ssid[0] == '\0') return;                    // no saved SSID to reconnect to
-    ESP_LOGW(TAG, "periodic reconnect: re-attempting saved SSID '%s'", s_sta_ssid);
+    if (s_scanning) return;                               // don't abort an in-flight portal scan
+    ESP_LOGW(TAG, "periodic reconnect: re-attempting saved SSID '%s'%s", s_sta_ssid,
+             s_state == DC_WIFI_STATE_AP_PORTAL ? " (from setup portal)" : "");
     s_retry = 0;
     esp_wifi_connect();
 }
